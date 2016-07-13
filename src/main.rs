@@ -8,6 +8,7 @@ extern crate requests;
 mod crates;
 
 use clap::{App, SubCommand, Arg, AppSettings, ArgMatches};
+use std::io::Write;
 
 const CARGO: &'static str = "cargo";
 
@@ -65,18 +66,26 @@ impl Report {
         }
     }
 
-    pub fn report(&self, name: &str) {
-        if let Ok(response) = query(name) {
-            if self.json {
-                self.report_json(&response)
-            } else if let Some(krate) = get_crate(&response) {
-                if self.versions > 0 {
-                    self.report_versions(&krate, self.versions);
-                } else if self.keywords {
-                    self.report_keywords(&krate);
-                } else {
-                    self.report_crate(&krate);
+    pub fn report(&self, name: &str) -> Result<(), ()> {
+        match query(name) {
+            Ok(response) => {
+                if self.json {
+                    self.report_json(&response)
+                } else if let Some(krate) = get_crate(&response) {
+                    if self.versions > 0 {
+                        self.report_versions(&krate, self.versions);
+                    } else if self.keywords {
+                        self.report_keywords(&krate);
+                    } else {
+                        self.report_crate(&krate);
+                    }
                 }
+                Ok(())
+            },
+            Err(e) => {
+                writeln!(&mut std::io::stderr(), "network error: {}", e)
+                  .expect("failed printing to stderr");
+                Err(())
             }
         }
     }
@@ -187,9 +196,16 @@ fn main() {
     if let Some(info) = matches.subcommand_matches("info") {
         if let Some(crates) = info.values_of("crate") {
             let rep = Report::new(info);
+            let mut all_successful = true;
             for krate in crates {
                 // debug(&krate);
-                rep.report(krate);
+                if rep.report(krate).is_err() {
+                    all_successful = false;
+                }
+            }
+
+            if ! all_successful {
+                std::process::exit(1);
             }
         }
     }
